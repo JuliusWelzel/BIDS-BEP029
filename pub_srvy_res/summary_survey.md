@@ -7,4 +7,4 @@ The online survey ran from June to September 2020. Results were avaliable to Sei
 ## Data-analysis
 Developed by Julius Welzel, University of Kiel (j.welzel@neuologie.uni-kiel.de) <br>
 
-![F3_plc_per_sys.png] (F3_plc_per_sys.png)
+![image] (F3_plc_per_sys.png)
