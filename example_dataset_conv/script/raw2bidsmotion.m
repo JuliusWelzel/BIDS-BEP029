@@ -24,11 +24,11 @@ for s = 1:numel(nms_subs)
 
     %% prep data for BIDS conversion
     nms_tasks   = dir(fullfile(path_raw,['sub-' nms_subs{s} filesep 'motion' filesep]));
-    nms_tasks   = nms_tasks(contains({nms_tasks.name},'.mat'));
+    nms_tasks   = nms_tasks(startsWith({nms_tasks.name},'imu_'));
     nms_tasks   = extractBetween({nms_tasks.name},'imu_','.mat');
     
-    for t = 1:numel(nms_tasks)
-        % load raw data
+    for t = 1:3%numel(nms_tasks)
+        % load raw imu data
         load(fullfile(path_raw,['sub-' nms_subs{s} filesep 'motion' filesep],['imu_',nms_tasks{t},'.mat']))
         imu = data;
         clear data
@@ -53,8 +53,31 @@ for s = 1:numel(nms_subs)
         cfg = [];
         dat_imu = ft_appenddata(cfg, data_acc, data_gyro, data_magn);
 
+                % load raw imu data
+        load(fullfile(path_raw,['sub-' nms_subs{s} filesep 'motion' filesep],['imu_',nms_tasks{t},'.mat']))
+        imu = data;
+        clear data
+
+        %% extract data per type and store in ft like struct
+        
+        % load raw optical data
+        load(fullfile(path_raw,['sub-' nms_subs{s} filesep 'motion' filesep],['omc_',nms_tasks{t},'.mat']))
+        omc = data;
+        omc.pos(:,4,:) = [];
+        
+        clear data
+
+        data_omc = [];
+        [data_omc.label nms_omc_type nms_omc_loc nms_omc_comp]      = locs2chans(omc.marker_location,{'POS'}); % only location, not label for *channels.tsv. Append accordingly :)
+        data_omc.trial{1}   = reshape(omc.pos,[],size(omc.pos,2) * size(omc.pos,3))'; % change 3d matrix to 2d, where 2nd dim are all avaliable channels from tracking system
+        data_omc.time{1}    = linspace(0,length(data_omc.trial{1})/imu.fs,length(data_omc.trial{1}));
+
+        %% combine imu data
+        cfg = [];
+        dat_imu = ft_appenddata(cfg, data_acc, data_gyro, data_magn);
+
         % construct ft header
-        dat_imu.hdr.Fs                  = dat_imu.fsample;
+        dat_imu.hdr.Fs                  = ceil(dat_imu.fsample);
         dat_imu.hdr.nSamples            = length(dat_imu.time{1});
         dat_imu.hdr.nTrials             = size(dat_imu.trial);
         dat_imu.hdr.nChans              = size(dat_imu.trial{1},1);
@@ -62,6 +85,18 @@ for s = 1:numel(nms_subs)
         dat_imu.hdr.chanunit            = dat_imu.hdr.chantype;
         dat_imu.hdr.label               = dat_imu.label;
 
+         %% combine imu data
+        cfg = [];
+        dat_omc = ft_appenddata(cfg, data_omc);
+
+        % construct ft header
+        dat_omc.hdr.Fs                  = dat_omc.fsample;
+        dat_omc.hdr.nSamples            = length(dat_omc.time{1});
+        dat_omc.hdr.nTrials             = size(dat_omc.trial);
+        dat_omc.hdr.nChans              = size(dat_omc.trial{1},1);
+        dat_omc.hdr.chantype            = nms_omc_type;
+        dat_omc.hdr.chanunit            = dat_omc.hdr.chantype;
+        dat_omc.hdr.label               = dat_omc.label;
         %% start BIDS conversion
         cfg = [];
         cfg.datatype = 'motion';
@@ -87,28 +122,39 @@ for s = 1:numel(nms_subs)
         % information needed to construct file paths and names
         cfg.sub                         = nms_subs{s};
         cfg.task                        = nms_tasks{t}; 
-        cfg.tracksys                    = "imu";
+        cfg.tracksys                    = ["omc"];
         cfg.TrackingSystemCount         = numel(cfg.tracksys);
-        cfg.channels.tracked_point      = horzcat(nms_acc_loc,nms_gyro_loc,nms_magn_loc);
-        cfg.channels.component          = horzcat(nms_acc_comp,nms_gyro_comp,nms_magn_comp);
-        cfg.channels.name               = dat_imu.label;
+        cfg.channels.tracked_point      = nms_omc_loc;%horzcat(nms_acc_loc,nms_gyro_loc,nms_magn_loc)%,nms_omc_loc);
+        cfg.channels.component          = nms_omc_comp;%horzcat(nms_acc_comp,nms_gyro_comp,nms_magn_comp)%,nms_omc_comp);
+        cfg.channels.name               = dat_omc.label;
 
-        cfg.motion.Manufacturer                 = 'Noraoxon';
-        cfg.motion.ManufacturersModelName       = 'MyoMOTION';
-        cfg.motion.SubjectArtefactDescription   = 'n/a';
-        cfg.motion.tracksys.imu.TrackPointsCount    = numel(cfg.channels.tracked_point);
-
-        cfg.motion.trsystems    = {'imu'};
-
+        cfg.motion.SubjectArtefactDescription       = 'n/a';
+        cfg.motion.trsystems                        = ["omc"];
+        cfg.motion.tracksys.omc.TrackPointsCount    = numel(unique(cfg.channels.tracked_point));
+        
         cfg.bidsroot = 'C:\Users\User\Desktop\bids_motion_validation';
 
         cfg.writejson = 'yes';
         cfg.writetsv = 'yes';
         % save as BIDS
-        data2bids_mot(cfg,dat_imu)
+        data2bids_mot(cfg,dat_omc)
+        
+        display(['Done with BIDS conversion for ' nms_subs{s} ' task ' nms_tasks{t}])
+        % save as BIDS
+%         data2bids_mot(cfg,dat_omc)
+        %% Problems using the data2bids
+        %{
+        - if multiple tracking systems defined, the filename is not constructed multiple times
+        - Manufacures Info in tracking system json
+        - need of coordinate system not nessecary
+        - cfg.motion.trsystems vs. cfg.motion.tracksys
+        - recording duration per tracking system
+        - channels.tsv removes tracking system info?
+        %}
     end
 
     % check error in json
    
 end
+
 
